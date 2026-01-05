@@ -1,0 +1,1 @@
+add_executable(blink ${CMAKE_CURRENT_LIST_DIR}/main.cpp)
