@@ -4,15 +4,18 @@
 #include "hardware/pio.h"
 #include "dac.pio.h"
 
-// TIP Modified from RPI RP2040 DMA control_blocks example <a href="https://github.com/raspberrypi/pico-examples/tree/master/dma/control_blocks">[Link]</a>
+/**
+ * Modified from RPI RP2040 DMA control_blocks example <a href="https://github.com/raspberrypi/pico-examples/tree/master/dma/control_blocks">[Link]</a>
+ */
 
 // R2R analog converter pin configuration
 
-// TIP Inspired by rgco <a href="https://www.instructables.com/Arbitrary-Wave-Generator-With-the-Raspberry-Pi-Pic/">[link]</a>
-
+/**
+ * Inspired by rgco <a href="https://www.instructables.com/Arbitrary-Wave-Generator-With-the-Raspberry-Pi-Pic/">Arbitrary Wave Generator With the Raspberry Pi Pico</a>
+ */
 // DATA_BASE = 2  - Pins starting from GPIO2 to avoid interference with default UART.
 // DATA_NPINS = 8 - 8 bits analog converter
-// Here, GPIO pins 2~9 are designated for DAC.
+// With this configuration, GPIO pins 2~9 are designated for DAC.
 #define DATA_BASE 2
 #define DATA_NPINS 8
 // This buffers will be DMA'd to the PIO.
@@ -44,25 +47,26 @@ int main() {
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, false);
-
-    // Note the order of the fields here: it's important that the length is before
-    // the read address, because the control channel is going to write to the last
-    // two registers in alias 3 on the data channel:
-    //           +0x0        +0x4          +0x8          +0xC (Trigger)
-    // Alias 0:  READ_ADDR   WRITE_ADDR    TRANS_COUNT   CTRL
-    // Alias 1:  CTRL        READ_ADDR     WRITE_ADDR    TRANS_COUNT
-    // Alias 2:  CTRL        TRANS_COUNT   READ_ADDR     WRITE_ADDR
-    // Alias 3:  CTRL        WRITE_ADDR    TRANS_COUNT   READ_ADDR
-    //
-    // This will program the transfer count and read address of the data channel,
-    // and trigger it. Once the data channel completes, it will restart the
-    // control channel (via CHAIN_TO) to load the next two words into its control
-    // registers.
-
+    /** (Document from RaspberryPi Pico Example)
+     *  Note the order of the fields here: it's important that the length is before
+     *  the read address, because the control channel is going to write to the last
+     *  two registers in alias 3 on the data channel:
+     *             +0x0        +0x4          +0x8          +0xC (Trigger)
+     *  Alias 0:  READ_ADDR   WRITE_ADDR    TRANS_COUNT   CTRL
+     *  Alias 1:  CTRL        READ_ADDR     WRITE_ADDR    TRANS_COUNT
+     *  Alias 2:  CTRL        TRANS_COUNT   READ_ADDR     WRITE_ADDR
+     *  Alias 3:  CTRL        WRITE_ADDR    TRANS_COUNT   READ_ADDR
+     *                                                         ↑
+     *                                [ctrl_chan writes this memory everytime it is triggered.]
+     *  This will program the transfer count and read address of the data channel,
+     *  and trigger it. Once the data channel completes, it will restart the
+     *  control channel (via CHAIN_TO) to load the next two words into its control
+     *  registers.
+     */
     dma_channel_configure(
             ctrl_chan,
             &c,
-            &dma_hw->ch[data_chan].al3_read_addr_trig, // Point to alias 3 read address. We simply need to point it to a read address, no matter alias x.
+            &dma_hw->ch[data_chan].al3_read_addr_trig, // [This is important, see bracketed part in the comment above]
             &buf_addr,
             1,
             false
@@ -82,12 +86,12 @@ int main() {
             data_chan,
             &c,
             &pio->txf[sm],
-            NULL, // Set null so currently data_chan is halted. Don't start... for instance.
+            NULL, // Set null so currently data_chan is halted. We want it start when we start.
             buf_length,
             false
     );
 
-    // Start control DMA.
+    // It's time, this is when we want to start DMA.
     dma_start_channel_mask(1u << ctrl_chan);
 
     // System idle thread
