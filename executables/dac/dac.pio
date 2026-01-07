@@ -1,0 +1,25 @@
+.program dac
+.wrap_target
+    out pins, 8
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void dac_program_init(PIO pio, uint sm, uint offset, uint pin_base, uint pin_count) {
+    for(uint i=pin_base; i<pin_base+pin_count; i++) {
+        pio_gpio_init(pio, i);
+    }
+
+    pio_sm_config c = dac_program_get_default_config(offset);
+    sm_config_set_out_shift(&c, true, true, 32);
+    sm_config_set_out_pins(&c, pin_base, pin_count);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    sm_config_set_clkdiv(&c, 1.0f);
+
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count, true);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

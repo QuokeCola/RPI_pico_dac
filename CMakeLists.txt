@@ -53,7 +53,7 @@ get_directory_property(TARGET_LIST BUILDSYSTEM_TARGETS)
 # Setup all executables targets
 foreach (exec_target ${TARGET_LIST})
     list(FIND LIB_TARGETS ${exec_target} idx)
-    if(idx EQUAL -1)
+    if(idx EQUAL -1 AND NOT(${exec_target} MATCHES "_pio_h"))
         message("Setting up ${exec_target}.")
 
         # Set unique output file

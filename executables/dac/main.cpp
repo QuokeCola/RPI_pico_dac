@@ -5,24 +5,20 @@
  */
 
 // Use two DMA channels to make a programmed sequence of data transfers to the
-// UART (a data gather operation). One channel is responsible for transferring
+// PIO. One channel is responsible for transferring
 // the actual data, the other repeatedly reprograms that channel.
 
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/dma.h"
 #include "hardware/pio.h"
-#include "hardware/structs/pio.h"
-#include "hardware/structs/uart.h"
+#include "dac.pio.h"
 
-// These buffers will be DMA'd to the UART, one after the other.
+// This buffers will be DMA'd to the PIO.
 
-const char word0[] = "Transferring ";
-const char word1[] = "one ";
-const char word2[] = "word ";
-const char word3[] = "at ";
-const char word4[] = "a ";
-const char word5[] = "time.\n";
+#define DATA_BASE 2
+#define DATA_NPINS 8
+const uint32_t word0[2] = {0xAA,0xAA};
 
 // Note the order of the fields here: it's important that the length is before
 // the read address, because the control channel is going to write to the last
@@ -38,22 +34,58 @@ const char word5[] = "time.\n";
 // control channel (via CHAIN_TO) to load the next two words into its control
 // registers.
 
-const struct {uint32_t len; const char *data;} control_blocks[] = {
-        {count_of(word0) - 1, word0}, // Skip null terminator
-        {count_of(word1) - 1, word1},
-        {count_of(word2) - 1, word2},
-        {count_of(word3) - 1, word3},
-        {count_of(word4) - 1, word4},
-        {count_of(word5) - 1, word5},
-        {0, NULL}                     // Null trigger to end chain.
+#ifndef LED_DELAY_MS
+#define LED_DELAY_MS 250
+#endif
+
+// Perform initialisation
+int pico_led_init(void) {
+#if defined(PICO_DEFAULT_LED_PIN)
+    // A device like Pico that uses a GPIO for the LED will define PICO_DEFAULT_LED_PIN
+    // so we can use normal GPIO functionality to turn the led on and off
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    return PICO_OK;
+#elif defined(CYW43_WL_GPIO_LED_PIN)
+    // For Pico W devices we need to initialise the driver etc
+    return cyw43_arch_init();
+#endif
+}
+
+// Turn the led on or off
+void pico_set_led(bool led_on) {
+#if defined(PICO_DEFAULT_LED_PIN)
+    // Just set the GPIO on or off
+    gpio_put(PICO_DEFAULT_LED_PIN, led_on);
+#elif defined(CYW43_WL_GPIO_LED_PIN)
+    // Ask the wifi "driver" to set the GPIO on or off
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+#endif
+}
+
+const struct {uint32_t len; const uint32_t *data;} control_blocks[] = {
+        {count_of(word0), word0}, // Skip null terminator
+        {count_of(word0), word0},
+        {count_of(word0), word0},
+        {count_of(word0), word0},
+        {0,NULL}
 };
 
 int main() {
-#ifndef uart_default
-#warning dma/control_blocks example requires a UART
-#else
+
     stdio_init_all();
     puts("DMA control block example:");
+    pico_led_init();
+
+    // Init PIO
+    PIO pio;
+    uint sm;
+    uint offset;
+
+    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&dac_program, &pio, &sm, &offset, DATA_BASE, DATA_NPINS, true);
+    hard_assert(success);
+
+    dac_program_init(pio,sm,offset,DATA_BASE,DATA_NPINS);
 
     // ctrl_chan loads control blocks into data_chan, which executes them.
     int ctrl_chan = dma_claim_unused_channel(true);
@@ -69,6 +101,7 @@ int main() {
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, true);
     channel_config_set_ring(&c, true, 3); // 1 << 3 byte boundary on write ptr
+    channel_config_set_ring(&c, false, 3); // 1 << 3 byte boundary on read ptr
     dma_channel_configure(
             ctrl_chan,
             &c,
@@ -78,14 +111,14 @@ int main() {
             false                                      // Don't start yet
     );
 
-    // The data channel is set up to write to the UART FIFO (paced by the
-    // UART's TX data request signal) and then chain to the control channel
+    // The data channel is set up to write to the PIO FIFO (paced by the
+    // PIO's TX data request signal) and then chain to the control channel
     // once it completes. The control channel programs a new read address and
     // data length, and retriggers the data channel.
 
     c = dma_channel_get_default_config(data_chan);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
-    channel_config_set_dreq(&c, uart_get_dreq(uart_default, true));
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_dreq(&c, pio_get_dreq(pio, sm, true));
     // Trigger ctrl_chan when data_chan completes
     channel_config_set_chain_to(&c, ctrl_chan);
     // Raise the IRQ flag when 0 is written to a trigger register (end of chain):
@@ -94,9 +127,9 @@ int main() {
     dma_channel_configure(
             data_chan,
             &c,
-            &uart_get_hw(uart_default)->dr,
+            &pio->txf[sm],
             NULL,           // Initial read address and transfer count are unimportant;
-            0,              // the control channel will reprogram them each time.
+            0,
             false           // Don't start yet.
     );
 
@@ -107,10 +140,17 @@ int main() {
     // The data channel will assert its IRQ flag when it gets a null trigger,
     // indicating the end of the control block list. We're just going to wait
     // for the IRQ flag instead of setting up an interrupt handler.
-    while (!(dma_hw->intr & 1u << data_chan))
-        tight_loop_contents();
-    dma_hw->ints0 = 1u << data_chan;
 
+//    while (true) {
+    while(!(dma_hw->intr & 1u << data_chan)) {
+//        pio_sm_put_blocking(pio,sm,0xAA);
+//        pio_sm_put_blocking(pio,sm,0xaa);
+        tight_loop_contents();
+        pico_set_led(true);
+        sleep_ms(100);
+//        pio_sm_put_blocking(pio,sm,0x55);
+        pico_set_led(false);
+        sleep_ms(100);
+    }
     puts("DMA finished.");
-#endif
 }

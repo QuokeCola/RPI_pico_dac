@@ -1,2 +1,5 @@
 add_executable(dac ${CMAKE_CURRENT_LIST_DIR}/main.cpp)
+pico_enable_stdio_usb(dac 1)
+pico_enable_stdio_uart(dac 0)
+pico_generate_pio_header(dac ${CMAKE_CURRENT_LIST_DIR}/dac.pio)
 target_link_libraries(dac hardware_dma hardware_pio)
