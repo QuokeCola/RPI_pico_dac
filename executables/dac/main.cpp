@@ -3,7 +3,6 @@
 #include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "dac.pio.h"
-
 /**
  * Modified from RPI RP2040 DMA control_blocks example <a href="https://github.com/raspberrypi/pico-examples/tree/master/dma/control_blocks">[Link]</a>
  */
@@ -19,12 +18,23 @@
 #define DATA_BASE 2
 #define DATA_NPINS 8
 // This buffers will be DMA'd to the PIO.
-uint32_t buffer[2] = {0x00000000, 0xAA000000};
+uint32_t buffer[512] = {0};
+
+static inline uint8_t bitrev8(uint8_t x) {
+    x = (uint8_t)((x >> 4) | (x << 4));
+    x = (uint8_t)(((x & 0xCC) >> 2) | ((x & 0x33) << 2));
+    x = (uint8_t)(((x & 0xAA) >> 1) | ((x & 0x55) << 1));
+    return x;
+}
 
 int main() {
 
     stdio_init_all();
     puts("DMA control block example:");
+
+    for (int i = 0; i < 512; i++) {
+        buffer[i] = uint32_t(bitrev8(uint8_t((i-256)*(i-256)/256))) << 24;
+    }
 
     // Buffer parameters (Length and address, we need to store the buffer pointer in a pointer variable, so we can have a pointer point to the buffer pointer).
     uint32_t buf_length = count_of(buffer);

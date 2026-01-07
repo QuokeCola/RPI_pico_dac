@@ -12,7 +12,7 @@ static inline void dac_program_init(PIO pio, uint sm, uint offset, uint pin_base
     }
 
     pio_sm_config c = dac_program_get_default_config(offset);
-    sm_config_set_out_shift(&c, true, true, 32);
+    sm_config_set_out_shift(&c, false, true, 8);
     sm_config_set_out_pins(&c, pin_base, pin_count);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
