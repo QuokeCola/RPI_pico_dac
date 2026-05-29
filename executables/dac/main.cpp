@@ -18,7 +18,7 @@
 #define DATA_BASE 2
 #define DATA_NPINS 8
 // This buffers will be DMA'd to the PIO.
-uint32_t buffer[512] = {0};
+uint32_t buffer[256] = {0};
 
 static inline uint8_t bitrev8(uint8_t x) {
     x = (uint8_t)((x >> 4) | (x << 4));
@@ -32,8 +32,14 @@ int main() {
     stdio_init_all();
     puts("DMA control block example:");
 
-    for (int i = 0; i < 512; i++) {
-        buffer[i] = uint32_t(bitrev8(uint8_t((i-256)*(i-256)/256))) << 24;
+    for (int i = 0; i < 256; i++) {
+//        buffer[i] = uint32_t(bitrev8(uint8_t((i-256)*(i-256)/256))) << 24;
+//        buffer[i] = uint32_t(bitrev8(uint8_t((i/2)))) << 24;
+        if(i < 128) {
+            buffer[i] = uint32_t(bitrev8(uint8_t((i)))) << 24;
+        } else {
+            buffer[i] = uint32_t(bitrev8(uint8_t((i-128)*(i-128)/64))) << 24;
+        }
     }
 
     // Buffer parameters (Length and address, we need to store the buffer pointer in a pointer variable, so we can have a pointer point to the buffer pointer).
